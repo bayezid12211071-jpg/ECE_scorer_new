@@ -18,7 +18,6 @@
             --neon-green: #39ff14; --neon-blue: #00f3ff;
             --neon-pink: #ff00ff; --neon-red: #ff073a;
             --neon-yellow: #fff01f; --neon-orange: #ff9900;
-            --glass: rgba(20, 20, 20, 0.95);
         }
         * { box-sizing: border-box; }
         body {
@@ -36,12 +35,18 @@
         /* HEADER */
         .scoreboard {
             background: #0a0a0a; border-bottom: 2px solid var(--neon-blue);
-            padding: 10px 0; text-align: center; flex-shrink: 0;
+            padding: 10px 0; text-align: center; flex-shrink: 0; position: relative;
             box-shadow: 0 0 20px rgba(0, 243, 255, 0.15);
         }
         .live-tag {
             color: var(--neon-red); font-family: 'Orbitron'; font-size: 0.8rem;
-            animation: blink 1s infinite; letter-spacing: 2px;
+            animation: blink 1s infinite; letter-spacing: 2px; display: inline-block;
+        }
+        .exit-btn {
+            position: absolute; top: 10px; right: 10px;
+            background: #222; color: #fff; border: 1px solid #444;
+            font-family: 'Orbitron'; font-size: 0.7rem; padding: 5px 10px;
+            border-radius: 4px; cursor: pointer; z-index: 10;
         }
         .score-big { 
             font-family: 'Orbitron'; font-size: 4rem; color: var(--neon-green);
@@ -59,7 +64,7 @@
         .win-banner {
             background: var(--neon-green); color: black; padding: 15px;
             font-family: 'Orbitron'; font-weight: 900; margin-top: 10px;
-            display: none; animation: pop 0.5s ease-out; font-size: 1.1rem;
+            display: none; font-size: 1.1rem;
             text-transform: uppercase; border-top: 2px solid white; border-bottom: 2px solid white;
         }
 
@@ -153,7 +158,6 @@
             transition: 0.2s; z-index: 200; white-space: nowrap; border-radius: 50px;
         }
         @keyframes blink { 50% { opacity: 0.3; } }
-        @keyframes pop { 0% { transform: scale(0.8); } 100% { transform: scale(1); } }
         @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
     </style>
 </head>
@@ -178,6 +182,7 @@
 
     <div id="game-screen" class="hidden">
         <div class="scoreboard">
+            <button class="exit-btn" onclick="app.exitMatch()">EXIT</button>
             <div class="live-tag">● LIVE</div>
             <div style="font-size:0.8rem; color:#666; font-family:'Orbitron'; margin-top:5px" id="inning-label">1ST INNINGS</div>
             <div class="score-big" id="disp-score">0 - 0</div>
@@ -287,6 +292,17 @@ const app = {
         }
     },
 
+    exitMatch: function() {
+        if(confirm("Exit Match Screen?")) {
+            document.getElementById('game-screen').classList.add('hidden');
+            document.getElementById('setup-screen').classList.add('hidden');
+            document.getElementById('role-screen').classList.remove('hidden');
+            // Clean up listener
+            matchRef.off();
+            window.location.reload(); // Hard reset to ensure fresh state
+        }
+    },
+
     sync: function() { if (this.role === 'scorer') { matchRef.set(this.state); this.updateUI(); } },
 
     startMatch: function() {
@@ -347,9 +363,7 @@ const app = {
         if(!this.state.isLMB && runs % 2 !== 0) this.swapIndices();
         this.state.isNB = false; this.state.isWD = false;
         
-        // Order: Check Win -> Then Handle Over End if match continues
         if (this.checkWin()) return;
-        
         if (overJustEnded) this.handleOverEnd();
         this.sync();
     },
@@ -362,6 +376,8 @@ const app = {
         this.state.wickets++; this.state.balls++;
         this.state.bStats[bName].b++; this.state.bStats[bName].w++;
         this.state.pStats[sName].b++; this.state.pStats[sName].out = true;
+        
+        // Mark striker as null temporarily
         this.state.striker = null;
 
         let overJustEnded = false;
@@ -377,28 +393,33 @@ const app = {
         
         // N-1 Logic: If Team=11, and 10 wickets down (1 man left)
         if(this.state.wickets === totalPlayers - 1) {
-            // Delay to allow UI update before confirm
             setTimeout(() => {
                 if(confirm("LAST MAN BATTING?")) {
-                    this.state.isLMB = true; this.state.nonStriker = null;
-                    if(overJustEnded) this.handleOverEnd(); // New bowler
-                    this.sync(); setTimeout(() => this.openPicker('bat1'), 200);
+                    this.state.isLMB = true;
+                    // FIX: Survivor (Non-Striker) MUST become the Striker
+                    this.state.striker = this.state.nonStriker;
+                    this.state.nonStriker = null;
+
+                    if(overJustEnded) {
+                        // FIX: If over ended, handle it, but prevent swapping inside handleOverEnd
+                        this.handleOverEnd(); 
+                    } else {
+                        // If over didn't end, just sync (Striker is already set to survivor)
+                        this.sync();
+                    }
                 } else {
                     this.handleInningsEnd();
                 }
             }, 500);
             return;
         } 
-        // All Out Logic
         else if(this.state.wickets >= totalPlayers) {
              this.handleInningsEnd();
              return;
         } 
         
-        // Priority 2: Check Win Condition (if chasing)
         if(this.checkWin()) return;
 
-        // Priority 3: Over End or Next Batsman
         if(overJustEnded) {
             this.handleOverEnd();
         } else {
@@ -409,8 +430,11 @@ const app = {
 
     handleOverEnd: function() {
         this.showToast("OVER END", "success");
+        // FIX: Do NOT swap if it's LMB mode (survivor is already on strike)
         if(!this.state.isLMB) this.swapIndices();
-        this.state.lastBowler = this.state.bowler; this.state.bowler = null;
+        
+        this.state.lastBowler = this.state.bowler; 
+        this.state.bowler = null;
         
         if(this.state.balls >= this.state.overs*6) {
             this.handleInningsEnd();
@@ -464,7 +488,7 @@ const app = {
                 msg = runs===0 ? "MATCH TIED" : `${bowlTeam} WON BY ${runs} RUNS`;
             }
         }
-        this.state.winMsg = msg; // Saves to cloud
+        this.state.winMsg = msg;
         this.sync();
     },
 
@@ -597,10 +621,6 @@ const app = {
         if (s.winMsg) {
             banner.innerText = s.winMsg;
             banner.style.display = 'block';
-            // Force animation reset for UX
-            banner.classList.remove('win-banner');
-            void banner.offsetWidth; // Trigger reflow
-            banner.classList.add('win-banner');
         } else {
             banner.style.display = 'none';
         }
