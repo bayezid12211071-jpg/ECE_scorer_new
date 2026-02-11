@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ECE Scorer Live</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+    <style>
+        :root {
+            --bg: #000000; 
+            --neon-green: #39ff14; 
+            --neon-blue: #00f3ff;
+            --neon-pink: #ff00ff; 
+            --neon-red: #ff073a;
+            --neon-yellow: #fff01f; 
+            --neon-orange: #ff9900;
+            --glass: rgba(20, 20, 20, 0.95);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background-color: var(--bg);
+            color: #fff;
+            margin: 0; 
+            height: 100dvh; /* Dynamic viewport height */
+            display: flex; justify-content: center;
+            overflow: hidden; touch-action: manipulation;
+        }
+
+        .app-container {
+            width: 100%; max-width: 480px; height: 100%;
+            display: flex; flex-direction: column; background: var(--bg);
+            border-left: 1px solid #222; border-right: 1px solid #222; position: relative;
+        }
+
+        .hidden { display: none !important; }
+
+        /* SCOREBOARD HEADER */
+        .scoreboard {
+            background: #0a0a0a; border-bottom: 2px solid var(--neon-blue);
+            padding: 10px 0; text-align: center; flex-shrink: 0;
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.15);
+        }
+        .live-tag {
+            color: var(--neon-red); font-family: 'Orbitron'; font-size: 0.8rem;
+            animation: blink 1s infinite; letter-spacing: 2px;
+        }
+        .score-big { 
+            font-family: 'Orbitron'; font-size: 4rem; color: var(--neon-green);
+            line-height: 0.9; text-shadow: 0 0 15px var(--neon-green);
+        }
+        .stats-row { 
+            display: flex; justify-content: space-between; padding: 5px 15px;
+            font-size: 1.1rem; color: var(--neon-yellow); font-weight: 700;
+        }
+        .lmb-tag {
+            background: var(--neon-red); color: white; padding: 2px 8px;
+            font-family: 'Orbitron'; font-size: 0.7rem; border-radius: 4px;
+            display: inline-block; margin-top: 5px; animation: pulse 1s infinite;
+        }
+        /* WINNER BANNER (Visible to all) */
+        .win-banner {
+            background: var(--neon-green); color: black; padding: 15px;
+            font-family: 'Orbitron'; font-weight: 900; margin-top: 10px;
+            display: none; animation: pop 0.5s ease-out; font-size: 1.1rem;
+            text-transform: uppercase; border-top: 2px solid white; border-bottom: 2px solid white;
+        }
+
+        /* SCROLLABLE GAME CONTENT */
+        .game-content {
+            flex: 1; overflow-y: auto; padding: 10px;
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        .players-container { display: flex; gap: 10px; }
+        .p-card {
+            flex: 1; background: #111; border: 1px solid #333;
+            border-radius: 8px; padding: 10px; text-align: center; cursor: pointer;
+            transition: 0.2s; position: relative;
+        }
+        .p-card.active { border-color: var(--neon-pink); box-shadow: inset 0 0 15px rgba(255,0,255,0.2); }
+        .p-card.hidden { display: none; }
+        .role-label { font-size: 0.7rem; color: #666; font-family: 'Orbitron'; margin-bottom: 4px; }
+        .p-name { display: block; font-family: 'Rajdhani'; font-size: 1.1rem; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .p-stats { font-size: 0.9rem; font-weight: bold; color: var(--neon-blue); }
+        .bowler-card {
+            background: #111; border: 1px solid var(--neon-yellow);
+            border-radius: 8px; padding: 10px 15px; display: flex;
+            justify-content: space-between; align-items: center; cursor: pointer;
+        }
+
+        /* BUTTONS */
+        .controls { 
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; 
+            padding: 8px; background: #050505; border-top: 1px solid #222; flex-shrink: 0;
+        }
+        .btn {
+            background: #111; border: 1px solid #333; color: white;
+            font-family: 'Orbitron'; font-size: 1.2rem; padding: 12px 0;
+            border-radius: 6px; cursor: pointer; position: relative;
+        }
+        .btn:active { background: #222; transform: scale(0.96); }
+        .btn:disabled { opacity: 0.2; pointer-events: none; }
+        
+        .btn-run { color: var(--neon-green); border-color: rgba(57, 255, 20, 0.3); }
+        .btn-mod { color: var(--neon-yellow); border-color: rgba(255, 240, 31, 0.3); font-size: 1rem; }
+        .btn-mod.active { background: var(--neon-yellow); color: black; }
+        .btn-out { color: var(--neon-red); border-color: rgba(255, 7, 58, 0.3); }
+        .btn-undo { grid-column: span 2; color: var(--neon-blue); border-color: rgba(0,243,255,0.3); font-size: 1rem; }
+        .btn-retire { grid-column: span 2; color: var(--neon-orange); border-color: rgba(255,153,0,0.3); font-size: 1rem; }
+
+        /* SCREENS */
+        #role-screen {
+            position: absolute; top:0; left:0; width:100%; height:100%;
+            background: #000; z-index: 500; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; gap: 20px;
+        }
+        .role-btn {
+            width: 80%; padding: 20px; font-family: 'Orbitron'; font-size: 1.5rem;
+            background: transparent; border: 2px solid #fff; color: #fff;
+            border-radius: 12px; cursor: pointer; text-align: center;
+        }
+        .role-scorer { border-color: var(--neon-green); color: var(--neon-green); }
+        .role-viewer { border-color: var(--neon-blue); color: var(--neon-blue); }
+
+        #setup-screen { padding: 20px; overflow-y: auto; height: 100%; display: flex; flex-direction: column; }
+        .input-group { margin-bottom: 15px; }
+        label { color: var(--neon-blue); font-weight: bold; display: block; margin-bottom: 5px; font-family:'Orbitron'; }
+        input, textarea {
+            width: 100%; background: #161616; border: 1px solid #333; color: white;
+            padding: 12px; border-radius: 6px; font-family: 'Rajdhani'; font-size: 1.1rem;
+        }
+
+        /* MODAL & ALERTS */
+        .modal-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95); z-index: 100; display: none;
+            justify-content: center; align-items: center;
+        }
+        .modal-box {
+            width: 90%; max-height: 80%; overflow-y: auto; 
+            background: #0a0a0a; border: 1px solid var(--neon-blue); 
+            padding: 15px; border-radius: 12px;
+        }
+        .picker-btn {
+            width: 100%; padding: 15px; margin-bottom: 8px; background: #111;
+            border: 1px solid #333; color: white; font-family: 'Rajdhani'; font-size: 1.1rem;
+            border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between;
+        }
+        .picker-btn.disabled { opacity: 0.4; pointer-events: none; }
+
+        .toast {
+            position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%);
+            background: #000; border: 2px solid var(--neon-red); color: var(--neon-red);
+            padding: 15px 30px; font-family: 'Orbitron'; font-size: 1.1rem;
+            box-shadow: 0 0 30px var(--neon-red); opacity: 0; pointer-events: none;
+            transition: 0.2s; z-index: 200; white-space: nowrap; border-radius: 50px;
+        }
+        @keyframes blink { 50% { opacity: 0.3; } }
+        @keyframes pop { 0% { transform: scale(0.8); } 100% { transform: scale(1); } }
+        @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    
+    <div id="role-screen">
+        <h1 style="font-family:'Orbitron'; color:white; margin-bottom:40px;">ECE SCORER</h1>
+        <button class="role-btn role-scorer" onclick="app.init('scorer')">SCORER</button>
+        <button class="role-btn role-viewer" onclick="app.init('viewer')">SPECTATOR</button>
+    </div>
+
+    <div id="setup-screen" class="hidden">
+        <h1 id="app-title" style="text-align:center; color:var(--neon-blue); font-family:'Orbitron'; font-size: 1.8rem; margin-bottom:30px; line-height: 1.4;">NEON SCORER</h1>
+        <div class="input-group"><label>OVERS</label><input type="number" id="inpOvers" value="5"></div>
+        <div class="input-group"><label>MAX OVERS/BOWLER</label><input type="number" id="inpMaxBowler" value="2"></div>
+        <div class="input-group"><label>HOME TEAM</label><textarea id="inpTeamA" placeholder="Names..." rows="3"></textarea></div>
+        <div class="input-group"><label>AWAY TEAM</label><textarea id="inpTeamB" placeholder="Names..." rows="3"></textarea></div>
+        <button class="role-btn role-scorer" style="width:100%" onclick="app.startMatch()">START MATCH</button>
+    </div>
+
+    <div id="game-screen" class="hidden">
+        <div class="scoreboard">
+            <div class="live-tag">● LIVE</div>
+            <div style="font-size:0.8rem; color:#666; font-family:'Orbitron'; margin-top:5px" id="inning-label">1ST INNINGS</div>
+            <div class="score-big" id="disp-score">0 - 0</div>
+            <div class="stats-row">
+                <span>OV: <span id="disp-overs">0.0</span> / <span id="disp-limit">5</span></span>
+                <span>CRR: <span id="disp-rr">0.0</span></span>
+            </div>
+            <div id="lmb-badge" class="lmb-tag hidden">LAST MAN BATTING</div>
+            <div id="disp-target" style="color:var(--neon-red); font-weight:bold; margin-top:5px; display:none; font-family:'Orbitron'">TARGET: 0</div>
+            <div id="win-banner" class="win-banner">WINNER</div>
+        </div>
+
+        <div class="game-content">
+            <div class="players-container">
+                <div class="p-card active" id="card-bat1" onclick="app.handleCardClick('bat1')">
+                    <div class="role-label">STRIKER</div>
+                    <span class="p-name" id="name-bat1">Select</span>
+                    <span class="p-stats" id="stat-bat1">0(0)</span>
+                </div>
+                <div class="p-card" id="card-bat2" onclick="app.handleCardClick('bat2')">
+                    <div class="role-label">NON-STR</div>
+                    <span class="p-name" id="name-bat2">Select</span>
+                    <span class="p-stats" id="stat-bat2">0(0)</span>
+                </div>
+            </div>
+            <div class="bowler-card" onclick="app.handleCardClick('bowl')">
+                <div>
+                    <div class="role-label" style="color:var(--neon-yellow)">CURRENT BOWLER</div>
+                    <div class="p-name" id="name-bowler" style="font-size:1.2rem">Select</div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-weight:bold; color:var(--neon-yellow); font-size:1.2rem; font-family:'Orbitron'" id="stat-bowler">0-0</div>
+                    <div style="font-size:0.9rem; color:#666;" id="ov-bowler">0.0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls" id="controls-panel">
+            <button class="btn btn-run" id="btn-0" onclick="app.score(0)">0</button>
+            <button class="btn btn-run" id="btn-1" onclick="app.score(1)">1</button>
+            <button class="btn btn-run" id="btn-2" onclick="app.score(2)">2</button>
+            <button class="btn btn-run" id="btn-4" onclick="app.score(4)">4</button>
+            <button class="btn btn-mod" id="btn-nb" onclick="app.toggleMod('NB')">NB</button>
+            <button class="btn btn-mod" id="btn-wd" onclick="app.toggleMod('WD')">WD</button>
+            <button class="btn btn-mod" onclick="app.speedBall()">SPD</button>
+            <button class="btn btn-out" onclick="app.wicket()">OUT</button>
+            <button class="btn btn-retire" id="btn-retire" onclick="app.retireBatter()">RETIRE</button>
+            <button class="btn btn-undo" onclick="app.undo()">UNDO</button>
+        </div>
+        <div id="spectator-msg" class="hidden" style="text-align:center; padding:20px; color:#666; font-family:'Orbitron'">SPECTATOR MODE</div>
+    </div>
+
+    <div id="picker-modal" class="modal-overlay" onclick="app.closeModal(event)">
+        <div class="modal-box">
+            <h3 style="color:var(--neon-blue); margin-top:0; font-family:'Orbitron'">SELECT PLAYER</h3>
+            <div id="picker-list"></div>
+            <button class="picker-btn" style="border-color:var(--neon-red); color:var(--neon-red); margin-top:15px; justify-content:center;" onclick="document.getElementById('picker-modal').style.display='none'">CANCEL</button>
+        </div>
+    </div>
+    <div id="toast" class="toast">ALERT</div>
+</div>
+
+<script>
+// --- YOUR FIREBASE CONFIG ---
+const firebaseConfig = {
+  apiKey: "AIzaSyA_5_DMiE86zL5BN6GTs99K9fExzK4OUC8",
+  authDomain: "ece-scorecard.firebaseapp.com",
+  databaseURL: "https://ece-scorecard-default-rtdb.firebaseio.com",
+  projectId: "ece-scorecard",
+  storageBucket: "ece-scorecard.firebasestorage.app",
+  messagingSenderId: "480121682072",
+  appId: "1:480121682072:web:52be4511a30c7326f438ed"
+};
+
+// INIT
+if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
+const db = firebase.database();
+const matchRef = db.ref('match_data');
+
+// TITLE
+(function setTitle() {
+    const d = new Date();
+    const t = `ECE scorer ${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()} | ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    document.title = t; document.getElementById('app-title').innerText = t;
+})();
+
+const app = {
+    role: null,
+    state: {
+        innings: 1, overs: 5, maxBowlerOvers: 2,
+        teamA: [], teamB: [], target: null,
+        score: 0, wickets: 0, balls: 0,
+        striker: null, nonStriker: null, bowler: null, lastBowler: null,
+        isNB: false, isWD: false, speedCount: 0,
+        pStats: {}, bStats: {},
+        isMatchOver: false, isLMB: false, winMsg: "" // Stores result text
+    },
+    history: [],
+
+    init: function(role) {
+        this.role = role;
+        document.getElementById('role-screen').classList.add('hidden');
+        if (role === 'scorer') {
+            document.getElementById('setup-screen').classList.remove('hidden');
+        } else {
+            // SPECTATOR
+            document.getElementById('game-screen').classList.remove('hidden');
+            document.getElementById('controls-panel').classList.add('hidden');
+            document.getElementById('spectator-msg').classList.remove('hidden');
+            
+            // Listen for changes
+            matchRef.on('value', (snap) => {
+                if (snap.val()) {
+                    this.state = snap.val();
+                    this.updateUI();
+                }
+            });
+        }
+    },
+
+    sync: function() { if (this.role === 'scorer') { matchRef.set(this.state); this.updateUI(); } },
+
+    startMatch: function() {
+        const getNames = (id) => document.getElementById(id).value.split(/[\n,]+/).map(s=>s.trim()).filter(s=>s);
+        this.state.overs = parseInt(document.getElementById('inpOvers').value) || 5;
+        this.state.maxBowlerOvers = parseInt(document.getElementById('inpMaxBowler').value) || 2;
+        this.state.teamA = getNames('inpTeamA');
+        this.state.teamB = getNames('inpTeamB');
+        
+        if(this.state.teamA.length < 2 || this.state.teamB.length < 1) { this.showToast("Add more players!"); return; }
+
+        [...this.state.teamA, ...this.state.teamB].forEach(n => {
+            this.state.pStats[n] = {r:0, b:0, out:false};
+            this.state.bStats[n] = {r:0, w:0, b:0, overs:0};
+        });
+
+        document.getElementById('setup-screen').classList.add('hidden');
+        document.getElementById('game-screen').classList.remove('hidden');
+        this.sync(); setTimeout(() => this.openPicker('bat1'), 300);
+    },
+
+    score: function(runs) {
+        if(this.role !== 'scorer') return;
+        if(!this.validate()) return;
+        if(this.state.isLMB && (runs === 1 || runs === 2) && !this.state.isWD && !this.state.isNB) {
+            this.showToast("LMB: Boundaries Only!"); return;
+        }
+        this.saveState();
+
+        const sName = this.getBatTeam()[this.state.striker];
+        const bName = this.getBowlTeam()[this.state.bowler];
+        let extra = 0, isLegal = true;
+
+        if(this.state.isNB) {
+            extra = 1; isLegal = false;
+            this.state.pStats[sName].r += runs;
+            if(runs > 0) this.state.pStats[sName].b++;
+        } else if (this.state.isWD) {
+            extra = 1 + runs; isLegal = false;
+        } else {
+            this.state.pStats[sName].r += runs;
+            this.state.pStats[sName].b++;
+        }
+
+        this.state.score += extra + runs;
+        this.state.bStats[bName].r += extra + runs;
+
+        if(isLegal) {
+            this.state.balls++;
+            this.state.bStats[bName].b++;
+            if(this.state.balls % 6 === 0) {
+                this.state.bStats[bName].overs++;
+                this.handleOverEnd(); return;
+            }
+        }
+
+        if(!this.state.isLMB && runs % 2 !== 0) this.swapIndices();
+        this.state.isNB = false; this.state.isWD = false;
+        
+        this.checkWin();
+        this.sync();
+    },
+
+    wicket: function() {
+        if(!this.validate()) return; this.saveState();
+        const sName = this.getBatTeam()[this.state.striker];
+        const bName = this.getBowlTeam()[this.state.bowler];
+
+        this.state.wickets++; this.state.balls++;
+        this.state.bStats[bName].b++; this.state.bStats[bName].w++;
+        this.state.pStats[sName].b++; this.state.pStats[sName].out = true;
+        this.state.striker = null;
+
+        if(this.state.isLMB) { 
+            if(this.state.balls % 6 === 0) this.state.bStats[bName].overs++;
+            this.handleInningsEnd(); return; 
+        }
+        
+        if(this.state.balls % 6 === 0) { 
+            this.state.bStats[bName].overs++; 
+            this.handleOverEnd(); return; 
+        }
+
+        this.state.isNB = false; this.state.isWD = false;
+        
+        const totalPlayers = this.getBatTeam().length;
+        
+        // --- N-1 LMB TRIGGER ---
+        if(this.state.wickets === totalPlayers - 1) {
+            setTimeout(() => {
+                if(confirm("LAST MAN BATTING?\n(OK = Yes, Cancel = All Out)")) {
+                    this.state.isLMB = true; this.state.nonStriker = null;
+                    this.sync(); setTimeout(() => this.openPicker('bat1'), 200);
+                } else {
+                    this.handleInningsEnd();
+                }
+            }, 500);
+        } else if(this.state.wickets >= totalPlayers) {
+             this.handleInningsEnd();
+        } else if(!this.checkWin()) {
+             setTimeout(() => this.openPicker('bat1'), 500);
+        }
+        this.sync();
+    },
+
+    handleOverEnd: function() {
+        this.showToast("OVER END", "success");
+        if(!this.state.isLMB) this.swapIndices();
+        this.state.lastBowler = this.state.bowler; this.state.bowler = null;
+        if(this.state.balls >= this.state.overs*6) this.handleInningsEnd();
+        else if(!this.state.isMatchOver) setTimeout(() => this.openPicker('bowl'), 1000);
+        this.sync();
+    },
+
+    handleInningsEnd: function() {
+        if(this.state.innings===1) {
+            this.showToast("INNINGS END", "success");
+            setTimeout(()=>this.startSecondInnings(), 2000);
+        } else this.finishMatch();
+    },
+
+    startSecondInnings: function() {
+        this.saveState();
+        this.state.target = this.state.score + 1;
+        this.state.innings = 2; this.state.score = 0; this.state.wickets = 0; this.state.balls = 0;
+        this.state.striker = null; this.state.nonStriker = null; 
+        this.state.bowler = null; this.state.lastBowler = null;
+        this.state.isLMB = false; this.history = [];
+        this.sync(); setTimeout(() => this.openPicker('bat1'), 500);
+    },
+
+    checkWin: function() {
+        if(this.state.innings===2) {
+            if(this.state.score >= this.state.target || this.state.balls >= this.state.overs*6 || this.state.wickets >= this.getBatTeam().length) {
+                this.finishMatch(); return true;
+            }
+        } return false;
+    },
+
+    finishMatch: function() {
+        this.state.isMatchOver = true;
+        let msg = "";
+        let batTeam = this.state.innings===2 ? "TEAM B" : "TEAM A";
+        let bowlTeam = this.state.innings===2 ? "TEAM A" : "TEAM B";
+        
+        if(this.state.innings===2) {
+            if(this.state.score >= this.state.target) {
+                let wkts = this.getBatTeam().length - this.state.wickets;
+                if(this.state.isLMB) wkts = 1;
+                msg = `${batTeam} WON BY ${wkts} WICKET${wkts>1?'S':''}`;
+            } else {
+                let runs = this.state.target - 1 - this.state.score;
+                msg = runs===0 ? "MATCH TIED" : `${bowlTeam} WON BY ${runs} RUNS`;
+            }
+        }
+        this.state.winMsg = msg; // SAVE TO CLOUD
+        this.sync();
+    },
+
+    // UTILS
+    handleCardClick: function(type) { if(this.role === 'scorer') this.openPicker(type); },
+    openPicker: function(mode) {
+        if(this.role !== 'scorer') return;
+        this.pickerMode = mode;
+        const list = document.getElementById('picker-list');
+        list.innerHTML = "";
+        const team = (mode === 'bowl') ? this.getBowlTeam() : this.getBatTeam();
+        
+        team.forEach((name, i) => {
+            let disabled = false; let info = "";
+            if(mode !== 'bowl') {
+                let s = this.state.pStats[name];
+                info = `<span class="picker-stat">${s.r}(${s.b})</span>`;
+                if(i === this.state.striker || i === this.state.nonStriker) { disabled=true; info="On Field"; }
+                if(s.out) { disabled=true; info="Out"; }
+            } else {
+                let s = this.state.bStats[name];
+                info = `<span class="picker-stat">${s.w}-${s.r}</span>`;
+                if(i === this.state.lastBowler) { disabled=true; info="Resting"; }
+                if(s.overs >= this.state.maxBowlerOvers) { disabled=true; info="Done"; }
+            }
+            const btn = document.createElement('button');
+            btn.className = `picker-btn ${disabled?'disabled':''}`;
+            btn.innerHTML = `<span>${name}</span> ${info}`;
+            btn.onclick = () => {
+                if(disabled) return;
+                if(mode==='bat1') this.state.striker=i;
+                if(mode==='bat2') this.state.nonStriker=i;
+                if(mode==='bowl') { this.state.bowler=i; this.state.speedCount=0; }
+                document.getElementById('picker-modal').style.display='none';
+                this.sync();
+            };
+            list.appendChild(btn);
+        });
+        document.getElementById('picker-modal').style.display = 'flex';
+    },
+
+    speedBall: function() {
+        this.state.speedCount++;
+        if(this.state.speedCount >= 2) {
+            this.showToast("2nd Speed! NB + 0", "success");
+            this.state.isNB = true; this.score(0); this.state.speedCount = 0;
+        } else this.showToast("Speed Warning (1/2)");
+    },
+    
+    retireBatter: function() {
+        if(!this.validate()) return; this.saveState();
+        this.state.striker = null; this.showToast("RETIRED"); 
+        this.sync(); setTimeout(() => this.openPicker('bat1'), 200);
+    },
+
+    swapIndices: function() { let t=this.state.striker; this.state.striker=this.state.nonStriker; this.state.nonStriker=t; },
+    toggleMod: function(t) { if(t==='NB') {this.state.isNB=!this.state.isNB; this.state.isWD=false;} else {this.state.isWD=!this.state.isWD; this.state.isNB=false;} this.sync(); },
+    validate: function() { if(this.state.isMatchOver) return false; if(this.state.isLMB) return this.state.striker!==null && this.state.bowler!==null; return this.state.striker!==null && this.state.nonStriker!==null && this.state.bowler!==null; },
+    getBatTeam: function() { return this.state.innings===1 ? this.state.teamA : this.state.teamB; },
+    getBowlTeam: function() { return this.state.innings===1 ? this.state.teamB : this.state.teamA; },
+    
+    saveState: function() { this.history.push(JSON.parse(JSON.stringify(this.state))); },
+    undo: function() { 
+        if(this.history.length) { 
+            this.state=this.history.pop(); this.state.isMatchOver=false; this.state.winMsg="";
+            this.sync(); 
+        } 
+    },
+    closeModal: function(e) { if(e.target.id==='picker-modal') e.target.style.display='none'; },
+    showToast: function(msg, type) {
+        const t=document.getElementById('toast'); t.innerText=msg; t.className="toast "+(type||"");
+        t.style.opacity=1; setTimeout(()=>t.style.opacity=0, 2000);
+    },
+
+    updateUI: function() {
+        const s = this.state;
+        document.getElementById('inning-label').innerText = s.innings === 1 ? "1ST INNINGS" : "2ND INNINGS";
+        document.getElementById('disp-score').innerText = `${s.score} - ${s.wickets}`;
+        document.getElementById('disp-overs').innerText = `${Math.floor(s.balls/6)}.${s.balls%6}`;
+        document.getElementById('disp-limit').innerText = s.overs;
+        let rr = s.balls>0 ? (s.score/(s.balls/6)).toFixed(1) : "0.0";
+        document.getElementById('disp-rr').innerText = rr;
+
+        const tEl = document.getElementById('disp-target');
+        if(s.innings===2) {
+            tEl.style.display='block';
+            let need = s.target - s.score;
+            if(need <= 0 && s.target !== null) { tEl.innerText = ""; } 
+            else { tEl.innerText = `TARGET: ${s.target} | NEED ${need}`; }
+        } else tEl.style.display='none';
+
+        if(s.isLMB) {
+            document.getElementById('lmb-badge').classList.remove('hidden');
+            document.getElementById('card-bat2').classList.add('hidden');
+            if(this.role === 'scorer') {
+                document.getElementById('btn-1').disabled = true;
+                document.getElementById('btn-2').disabled = true;
+                document.getElementById('btn-retire').disabled = true;
+            }
+        } else {
+            document.getElementById('lmb-badge').classList.add('hidden');
+            document.getElementById('card-bat2').classList.remove('hidden');
+            if(this.role === 'scorer') {
+                document.getElementById('btn-1').disabled = false;
+                document.getElementById('btn-2').disabled = false;
+                document.getElementById('btn-retire').disabled = false;
+            }
+        }
+
+        this.renderP('bat1', s.striker, true); 
+        this.renderP('bat2', s.nonStriker, false);
+
+        const bEl = document.getElementById('name-bowler');
+        const bsEl = document.getElementById('stat-bowler');
+        const boEl = document.getElementById('ov-bowler');
+        if(s.bowler!==null) {
+            let n = this.getBowlTeam()[s.bowler];
+            let st = s.bStats[n];
+            bEl.innerText = n;
+            bsEl.innerText = `${st.w}-${st.r}`;
+            boEl.innerText = `${Math.floor(st.b/6)}.${st.b%6}`;
+        } else { bEl.innerText = "Select"; bsEl.innerText="0-0"; boEl.innerText="0.0"; }
+
+        if(this.role === 'scorer') {
+            document.getElementById('btn-nb').classList.toggle('active', s.isNB);
+            document.getElementById('btn-wd').classList.toggle('active', s.isWD);
+        }
+        
+        // WIN BANNER (Visible to all)
+        const banner = document.getElementById('win-banner');
+        if (s.winMsg && s.winMsg.length > 0) {
+            banner.innerText = s.winMsg;
+            banner.style.display = 'block';
+        } else {
+            banner.style.display = 'none';
+        }
+    },
+
+    renderP: function(id, idx, act) {
+        const el=document.getElementById('card-'+id);
+        const nEl=document.getElementById('name-'+id);
+        const sEl=document.getElementById('stat-'+id);
+        if(act) el.classList.add('active'); else el.classList.remove('active');
+        if(idx!==null) {
+            let n=this.getBatTeam()[idx];
+            nEl.innerText=n; sEl.innerText=`${this.state.pStats[n].r}(${this.state.pStats[n].b})`;
+        } else { nEl.innerText="Select"; sEl.innerText="-"; }
+    }
+};
+</script>
+</body>
+</html>
