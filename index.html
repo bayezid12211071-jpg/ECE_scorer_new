@@ -14,37 +14,26 @@
 
     <style>
         :root {
-            --bg: #000000; 
-            --neon-green: #39ff14; 
-            --neon-blue: #00f3ff;
-            --neon-pink: #ff00ff; 
-            --neon-red: #ff073a;
-            --neon-yellow: #fff01f; 
-            --neon-orange: #ff9900;
+            --bg: #000000; --panel: #0a0a0a;
+            --neon-green: #39ff14; --neon-blue: #00f3ff;
+            --neon-pink: #ff00ff; --neon-red: #ff073a;
+            --neon-yellow: #fff01f; --neon-orange: #ff9900;
             --glass: rgba(20, 20, 20, 0.95);
         }
-
         * { box-sizing: border-box; }
-
         body {
-            font-family: 'Rajdhani', sans-serif;
-            background-color: var(--bg);
-            color: #fff;
-            margin: 0; 
-            height: 100dvh; /* Dynamic viewport height */
-            display: flex; justify-content: center;
+            font-family: 'Rajdhani', sans-serif; background-color: var(--bg); color: #fff;
+            margin: 0; height: 100dvh; display: flex; justify-content: center;
             overflow: hidden; touch-action: manipulation;
         }
-
         .app-container {
             width: 100%; max-width: 480px; height: 100%;
             display: flex; flex-direction: column; background: var(--bg);
             border-left: 1px solid #222; border-right: 1px solid #222; position: relative;
         }
-
         .hidden { display: none !important; }
 
-        /* SCOREBOARD HEADER */
+        /* HEADER */
         .scoreboard {
             background: #0a0a0a; border-bottom: 2px solid var(--neon-blue);
             padding: 10px 0; text-align: center; flex-shrink: 0;
@@ -67,7 +56,6 @@
             font-family: 'Orbitron'; font-size: 0.7rem; border-radius: 4px;
             display: inline-block; margin-top: 5px; animation: pulse 1s infinite;
         }
-        /* WINNER BANNER (Visible to all) */
         .win-banner {
             background: var(--neon-green); color: black; padding: 15px;
             font-family: 'Orbitron'; font-weight: 900; margin-top: 10px;
@@ -75,7 +63,7 @@
             text-transform: uppercase; border-top: 2px solid white; border-bottom: 2px solid white;
         }
 
-        /* SCROLLABLE GAME CONTENT */
+        /* GAME CONTENT */
         .game-content {
             flex: 1; overflow-y: auto; padding: 10px;
             display: flex; flex-direction: column; gap: 10px;
@@ -97,7 +85,7 @@
             justify-content: space-between; align-items: center; cursor: pointer;
         }
 
-        /* BUTTONS */
+        /* CONTROLS */
         .controls { 
             display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; 
             padding: 8px; background: #050505; border-top: 1px solid #222; flex-shrink: 0;
@@ -105,7 +93,7 @@
         .btn {
             background: #111; border: 1px solid #333; color: white;
             font-family: 'Orbitron'; font-size: 1.2rem; padding: 12px 0;
-            border-radius: 6px; cursor: pointer; position: relative;
+            border-radius: 6px; cursor: pointer;
         }
         .btn:active { background: #222; transform: scale(0.96); }
         .btn:disabled { opacity: 0.2; pointer-events: none; }
@@ -199,7 +187,7 @@
             </div>
             <div id="lmb-badge" class="lmb-tag hidden">LAST MAN BATTING</div>
             <div id="disp-target" style="color:var(--neon-red); font-weight:bold; margin-top:5px; display:none; font-family:'Orbitron'">TARGET: 0</div>
-            <div id="win-banner" class="win-banner">WINNER</div>
+            <div id="win-banner" class="win-banner"></div>
         </div>
 
         <div class="game-content">
@@ -253,7 +241,6 @@
 </div>
 
 <script>
-// --- YOUR FIREBASE CONFIG ---
 const firebaseConfig = {
   apiKey: "AIzaSyA_5_DMiE86zL5BN6GTs99K9fExzK4OUC8",
   authDomain: "ece-scorecard.firebaseapp.com",
@@ -264,12 +251,10 @@ const firebaseConfig = {
   appId: "1:480121682072:web:52be4511a30c7326f438ed"
 };
 
-// INIT
 if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
 const db = firebase.database();
 const matchRef = db.ref('match_data');
 
-// TITLE
 (function setTitle() {
     const d = new Date();
     const t = `ECE scorer ${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()} | ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
@@ -285,7 +270,7 @@ const app = {
         striker: null, nonStriker: null, bowler: null, lastBowler: null,
         isNB: false, isWD: false, speedCount: 0,
         pStats: {}, bStats: {},
-        isMatchOver: false, isLMB: false, winMsg: "" // Stores result text
+        isMatchOver: false, isLMB: false, winMsg: ""
     },
     history: [],
 
@@ -295,18 +280,10 @@ const app = {
         if (role === 'scorer') {
             document.getElementById('setup-screen').classList.remove('hidden');
         } else {
-            // SPECTATOR
             document.getElementById('game-screen').classList.remove('hidden');
             document.getElementById('controls-panel').classList.add('hidden');
             document.getElementById('spectator-msg').classList.remove('hidden');
-            
-            // Listen for changes
-            matchRef.on('value', (snap) => {
-                if (snap.val()) {
-                    this.state = snap.val();
-                    this.updateUI();
-                }
-            });
+            matchRef.on('value', (snap) => { if(snap.val()){ this.state = snap.val(); this.updateUI(); } });
         }
     },
 
@@ -357,19 +334,23 @@ const app = {
         this.state.score += extra + runs;
         this.state.bStats[bName].r += extra + runs;
 
+        let overJustEnded = false;
         if(isLegal) {
             this.state.balls++;
             this.state.bStats[bName].b++;
             if(this.state.balls % 6 === 0) {
                 this.state.bStats[bName].overs++;
-                this.handleOverEnd(); return;
+                overJustEnded = true;
             }
         }
 
         if(!this.state.isLMB && runs % 2 !== 0) this.swapIndices();
         this.state.isNB = false; this.state.isWD = false;
         
-        this.checkWin();
+        // Order: Check Win -> Then Handle Over End if match continues
+        if (this.checkWin()) return;
+        
+        if (overJustEnded) this.handleOverEnd();
         this.sync();
     },
 
@@ -383,34 +364,45 @@ const app = {
         this.state.pStats[sName].b++; this.state.pStats[sName].out = true;
         this.state.striker = null;
 
-        if(this.state.isLMB) { 
-            if(this.state.balls % 6 === 0) this.state.bStats[bName].overs++;
-            this.handleInningsEnd(); return; 
-        }
-        
-        if(this.state.balls % 6 === 0) { 
-            this.state.bStats[bName].overs++; 
-            this.handleOverEnd(); return; 
+        let overJustEnded = false;
+        if(this.state.balls % 6 === 0) {
+            this.state.bStats[bName].overs++;
+            overJustEnded = true;
         }
 
         this.state.isNB = false; this.state.isWD = false;
         
+        // Priority 1: LMB / Match End Logic
         const totalPlayers = this.getBatTeam().length;
         
-        // --- N-1 LMB TRIGGER ---
+        // N-1 Logic: If Team=11, and 10 wickets down (1 man left)
         if(this.state.wickets === totalPlayers - 1) {
+            // Delay to allow UI update before confirm
             setTimeout(() => {
-                if(confirm("LAST MAN BATTING?\n(OK = Yes, Cancel = All Out)")) {
+                if(confirm("LAST MAN BATTING?")) {
                     this.state.isLMB = true; this.state.nonStriker = null;
+                    if(overJustEnded) this.handleOverEnd(); // New bowler
                     this.sync(); setTimeout(() => this.openPicker('bat1'), 200);
                 } else {
                     this.handleInningsEnd();
                 }
             }, 500);
-        } else if(this.state.wickets >= totalPlayers) {
+            return;
+        } 
+        // All Out Logic
+        else if(this.state.wickets >= totalPlayers) {
              this.handleInningsEnd();
-        } else if(!this.checkWin()) {
-             setTimeout(() => this.openPicker('bat1'), 500);
+             return;
+        } 
+        
+        // Priority 2: Check Win Condition (if chasing)
+        if(this.checkWin()) return;
+
+        // Priority 3: Over End or Next Batsman
+        if(overJustEnded) {
+            this.handleOverEnd();
+        } else {
+            setTimeout(() => this.openPicker('bat1'), 500);
         }
         this.sync();
     },
@@ -419,8 +411,12 @@ const app = {
         this.showToast("OVER END", "success");
         if(!this.state.isLMB) this.swapIndices();
         this.state.lastBowler = this.state.bowler; this.state.bowler = null;
-        if(this.state.balls >= this.state.overs*6) this.handleInningsEnd();
-        else if(!this.state.isMatchOver) setTimeout(() => this.openPicker('bowl'), 1000);
+        
+        if(this.state.balls >= this.state.overs*6) {
+            this.handleInningsEnd();
+        } else if(!this.state.isMatchOver) {
+            setTimeout(() => this.openPicker('bowl'), 1000);
+        }
         this.sync();
     },
 
@@ -443,7 +439,10 @@ const app = {
 
     checkWin: function() {
         if(this.state.innings===2) {
-            if(this.state.score >= this.state.target || this.state.balls >= this.state.overs*6 || this.state.wickets >= this.getBatTeam().length) {
+            if(this.state.score >= this.state.target) {
+                this.finishMatch(); return true;
+            }
+            if(this.state.balls >= this.state.overs*6 && this.state.score < this.state.target) {
                 this.finishMatch(); return true;
             }
         } return false;
@@ -465,7 +464,7 @@ const app = {
                 msg = runs===0 ? "MATCH TIED" : `${bowlTeam} WON BY ${runs} RUNS`;
             }
         }
-        this.state.winMsg = msg; // SAVE TO CLOUD
+        this.state.winMsg = msg; // Saves to cloud
         this.sync();
     },
 
@@ -594,11 +593,14 @@ const app = {
             document.getElementById('btn-wd').classList.toggle('active', s.isWD);
         }
         
-        // WIN BANNER (Visible to all)
         const banner = document.getElementById('win-banner');
-        if (s.winMsg && s.winMsg.length > 0) {
+        if (s.winMsg) {
             banner.innerText = s.winMsg;
             banner.style.display = 'block';
+            // Force animation reset for UX
+            banner.classList.remove('win-banner');
+            void banner.offsetWidth; // Trigger reflow
+            banner.classList.add('win-banner');
         } else {
             banner.style.display = 'none';
         }
