@@ -402,9 +402,16 @@ const app = {
         if(!this.state.isLMB && runs % 2 !== 0) this.swapIndices();
         this.state.isNB = false; this.state.isWD = false;
         
-        // Fix: Sync BEFORE returning if checkWin is true
+        // SYNC 1: Check win or over end. 
+        // Logic: If win, sync inside checkWin. If over end, sync inside handleOverEnd.
+        // If neither, sync at bottom.
+        
         if (this.checkWin()) return;
-        if (overJustEnded) this.handleOverEnd();
+        
+        if (overJustEnded) {
+            this.handleOverEnd();
+            return; // handleOverEnd handles the sync
+        }
         
         this.sync();
     },
@@ -422,6 +429,9 @@ const app = {
         
         this.state.striker = null;
 
+        // CRITICAL SYNC: Ensure W is seen before potential popups/end game
+        this.sync();
+
         let overJustEnded = false;
         if(this.state.balls % 6 === 0) {
             this.state.bStats[bName].overs++;
@@ -432,22 +442,26 @@ const app = {
         
         const totalPlayers = this.getBatTeam().length;
         
+        // ALL OUT check
+        if(this.state.wickets >= totalPlayers) {
+             this.handleInningsEnd();
+             return;
+        } 
+        
+        // LMB Check (N-1 wickets)
         if(this.state.wickets === totalPlayers - 1) {
             setTimeout(() => {
                 if(confirm("LAST MAN BATTING?")) {
                     this.state.isLMB = true;
                     this.state.striker = this.state.nonStriker;
                     this.state.nonStriker = null;
-                    if(overJustEnded) this.handleOverEnd(); else this.sync();
+                    if(overJustEnded) this.handleOverEnd(); 
+                    else this.sync(); // Sync the LMB state change
                 } else {
                     this.handleInningsEnd();
                 }
             }, 500);
             return;
-        } 
-        else if(this.state.wickets >= totalPlayers) {
-             this.handleInningsEnd();
-             return;
         } 
         
         if(this.checkWin()) return;
@@ -456,8 +470,8 @@ const app = {
             this.handleOverEnd();
         } else {
             setTimeout(() => this.openPicker('bat1'), 500);
+            this.sync(); // Extra sync to be safe
         }
-        this.sync();
     },
 
     addBallHistory: function(val) {
@@ -469,6 +483,9 @@ const app = {
     handleOverEnd: function() {
         this.showToast("OVER END", "success");
         this.addBallHistory("|");
+        // Force Sync so the pipe | appears immediately
+        this.sync();
+        
         if(!this.state.isLMB) this.swapIndices();
         this.state.lastBowler = this.state.bowler; 
         this.state.bowler = null;
@@ -477,15 +494,17 @@ const app = {
             this.handleInningsEnd();
         } else if(!this.state.isMatchOver) {
             setTimeout(() => this.openPicker('bowl'), 1000);
+            this.sync(); // Sync the bowler null state
         }
-        this.sync();
     },
 
     handleInningsEnd: function() {
-        this.sync(); // CRITICAL FIX: Send "Final Ball/Over End" state BEFORE resetting
+        // Force Sync BEFORE resetting anything
+        this.sync();
+        
         if(this.state.innings===1) {
             this.showToast("INNINGS END", "success");
-            setTimeout(()=>this.startSecondInnings(), 2000);
+            setTimeout(()=>this.startSecondInnings(), 3000); // Increased wait time
         } else this.finishMatch();
     },
 
