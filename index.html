@@ -56,6 +56,26 @@
             display: flex; justify-content: space-between; padding: 5px 15px;
             font-size: 1.1rem; color: var(--neon-yellow); font-weight: 700;
         }
+        
+        /* HISTORY STRIP */
+        .history-strip {
+            display: flex; gap: 6px; padding: 8px 15px; overflow-x: auto;
+            white-space: nowrap; justify-content: flex-start;
+            border-top: 1px solid #222; background: #050505;
+            height: 45px; align-items: center;
+            scrollbar-width: none; /* Firefox */
+        }
+        .history-strip::-webkit-scrollbar { display: none; }
+        .h-ball {
+            width: 28px; height: 28px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'Orbitron'; font-size: 0.75rem; font-weight: bold;
+            background: #222; color: #fff; border: 1px solid #444; flex-shrink: 0;
+        }
+        .h-4, .h-6 { background: var(--neon-green); color: black; border-color: white; }
+        .h-w { background: var(--neon-red); color: white; border-color: white; }
+        .h-nb, .h-wd { background: var(--neon-yellow); color: black; border-color: white; }
+        
         .lmb-tag {
             background: var(--neon-red); color: white; padding: 2px 8px;
             font-family: 'Orbitron'; font-size: 0.7rem; border-radius: 4px;
@@ -186,6 +206,10 @@
             <div class="live-tag">● LIVE</div>
             <div style="font-size:0.8rem; color:#666; font-family:'Orbitron'; margin-top:5px" id="inning-label">1ST INNINGS</div>
             <div class="score-big" id="disp-score">0 - 0</div>
+            
+            <div class="history-strip" id="history-strip">
+                </div>
+
             <div class="stats-row">
                 <span>OV: <span id="disp-overs">0.0</span> / <span id="disp-limit">5</span></span>
                 <span>CRR: <span id="disp-rr">0.0</span></span>
@@ -275,7 +299,8 @@ const app = {
         striker: null, nonStriker: null, bowler: null, lastBowler: null,
         isNB: false, isWD: false, speedCount: 0,
         pStats: {}, bStats: {},
-        isMatchOver: false, isLMB: false, winMsg: ""
+        isMatchOver: false, isLMB: false, winMsg: "",
+        ballHistory: [] // New: Array to store ball logs
     },
     history: [],
 
@@ -297,9 +322,8 @@ const app = {
             document.getElementById('game-screen').classList.add('hidden');
             document.getElementById('setup-screen').classList.add('hidden');
             document.getElementById('role-screen').classList.remove('hidden');
-            // Clean up listener
             matchRef.off();
-            window.location.reload(); // Hard reset to ensure fresh state
+            window.location.reload(); 
         }
     },
 
@@ -335,17 +359,23 @@ const app = {
         const sName = this.getBatTeam()[this.state.striker];
         const bName = this.getBowlTeam()[this.state.bowler];
         let extra = 0, isLegal = true;
+        let ballLog = ""; // For history
 
         if(this.state.isNB) {
             extra = 1; isLegal = false;
             this.state.pStats[sName].r += runs;
             if(runs > 0) this.state.pStats[sName].b++;
+            ballLog = "NB" + (runs > 0 ? "+"+runs : "");
         } else if (this.state.isWD) {
             extra = 1 + runs; isLegal = false;
+            ballLog = "WD" + (runs > 0 ? "+"+runs : "");
         } else {
             this.state.pStats[sName].r += runs;
             this.state.pStats[sName].b++;
+            ballLog = runs.toString();
         }
+
+        this.addBallHistory(ballLog); // Log ball
 
         this.state.score += extra + runs;
         this.state.bStats[bName].r += extra + runs;
@@ -373,11 +403,12 @@ const app = {
         const sName = this.getBatTeam()[this.state.striker];
         const bName = this.getBowlTeam()[this.state.bowler];
 
+        this.addBallHistory("W"); // Log Wicket
+
         this.state.wickets++; this.state.balls++;
         this.state.bStats[bName].b++; this.state.bStats[bName].w++;
         this.state.pStats[sName].b++; this.state.pStats[sName].out = true;
         
-        // Mark striker as null temporarily
         this.state.striker = null;
 
         let overJustEnded = false;
@@ -388,25 +419,15 @@ const app = {
 
         this.state.isNB = false; this.state.isWD = false;
         
-        // Priority 1: LMB / Match End Logic
         const totalPlayers = this.getBatTeam().length;
         
-        // N-1 Logic: If Team=11, and 10 wickets down (1 man left)
         if(this.state.wickets === totalPlayers - 1) {
             setTimeout(() => {
                 if(confirm("LAST MAN BATTING?")) {
                     this.state.isLMB = true;
-                    // FIX: Survivor (Non-Striker) MUST become the Striker
                     this.state.striker = this.state.nonStriker;
                     this.state.nonStriker = null;
-
-                    if(overJustEnded) {
-                        // FIX: If over ended, handle it, but prevent swapping inside handleOverEnd
-                        this.handleOverEnd(); 
-                    } else {
-                        // If over didn't end, just sync (Striker is already set to survivor)
-                        this.sync();
-                    }
+                    if(overJustEnded) this.handleOverEnd(); else this.sync();
                 } else {
                     this.handleInningsEnd();
                 }
@@ -428,11 +449,16 @@ const app = {
         this.sync();
     },
 
+    addBallHistory: function(val) {
+        if(!this.state.ballHistory) this.state.ballHistory = [];
+        this.state.ballHistory.push(val);
+        if(this.state.ballHistory.length > 20) this.state.ballHistory.shift(); // Keep last 20 internally
+    },
+
     handleOverEnd: function() {
         this.showToast("OVER END", "success");
-        // FIX: Do NOT swap if it's LMB mode (survivor is already on strike)
+        this.addBallHistory("|"); // Visual separator
         if(!this.state.isLMB) this.swapIndices();
-        
         this.state.lastBowler = this.state.bowler; 
         this.state.bowler = null;
         
@@ -457,7 +483,7 @@ const app = {
         this.state.innings = 2; this.state.score = 0; this.state.wickets = 0; this.state.balls = 0;
         this.state.striker = null; this.state.nonStriker = null; 
         this.state.bowler = null; this.state.lastBowler = null;
-        this.state.isLMB = false; this.history = [];
+        this.state.isLMB = false; this.state.ballHistory = []; // Clear history
         this.sync(); setTimeout(() => this.openPicker('bat1'), 500);
     },
 
@@ -623,6 +649,24 @@ const app = {
             banner.style.display = 'block';
         } else {
             banner.style.display = 'none';
+        }
+        
+        // Render History Strip
+        const hStrip = document.getElementById('history-strip');
+        hStrip.innerHTML = "";
+        if(s.ballHistory) {
+            s.ballHistory.slice(-10).forEach(ball => {
+                const bDiv = document.createElement('div');
+                let cls = 'h-ball ';
+                if(ball.includes('4') || ball.includes('6')) cls += 'h-4';
+                else if(ball.includes('W')) cls += 'h-w';
+                else if(ball.includes('NB') || ball.includes('WD')) cls += 'h-nb';
+                bDiv.className = cls;
+                bDiv.innerText = ball;
+                hStrip.appendChild(bDiv);
+            });
+            // Auto scroll to right
+            hStrip.scrollLeft = hStrip.scrollWidth;
         }
     },
 
